@@ -1,49 +1,162 @@
-use std::env::args;
-use std::fs::{metadata, File};
+#[allow(unused_imports)]
+use std::fs;
+
 use std::io::{Read, Seek, SeekFrom};
 use std::thread;
+use clap::Parser;
+use std::fs::File;
+use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::collections::VecDeque;
+use std::collections::HashMap;
+/// CLI definition
+#[derive(Parser)]
+struct Cli {
+    file_path: PathBuf,
+}
+
+
+const KB: usize = 1024;
+const BLOCK_SIZE: usize = 16 * KB;
+const THREADS: usize = 8;
 
 fn main() {
-    let args: Vec<String> = args().collect();
-    let path: &String = &args[1];
-    let length: usize = metadata(path)
+    let args = Cli::parse();
+    let path = Arc::new(args.file_path);
+
+    let file_path_str = path.to_str().unwrap_or("<non-utf8>").to_string();
+    println!("Path as string: {}", file_path_str);
+
+    let length: u64 = std::fs::metadata(&*path)
         .expect("Unable to query file details")
-        .len()
-        .try_into()
-        .expect("Couldn't convert len from u64 to usize");
+        .len();
+    println!("Total file length: {} bytes", length);
 
-    const BLOCK_SIZE: usize = 16_777_216; //16M
-    const THREADS: usize = 10;
-    // How much each thread should read
-    let division: usize = ((length / THREADS) as f64).ceil() as usize;
+    let mut chunks = VecDeque::new();
+    let mut offset = 0;
+    while offset < length {
+        let size = std::cmp::min(BLOCK_SIZE as u64, length - offset);
+        chunks.push_back((offset, size));
+        offset += size;
+    }
 
-    // Use scoped threads to keep things simpler
+    let chunks = Arc::new(Mutex::new(chunks));
+    let output_data = Arc::new(Mutex::new(Vec::with_capacity(length as usize)));
+
+    // Thread pool
     thread::scope(|scope| {
-        for i in 0..THREADS {
+        for _ in 0..THREADS {
+            let path = Arc::clone(&path);
+            let chunks = Arc::clone(&chunks);
+            let output_data = Arc::clone(&output_data);
+
             scope.spawn(move || {
-                // Open a file handle per thread
-                let mut thread_file = File::open(&path).expect("Unable to open file");
-                let mut contents = vec![0_u8; BLOCK_SIZE];
-                // Can't be zero since that's the EOF condition from read()
-                let mut read_length: usize = 1;
-                let mut read_total: usize = 0;
-                let offset: u64 = (i * division) as u64;
-                thread_file
-                    .seek(SeekFrom::Start(offset))
-                    .expect("Couldn't seek to position in file");
+                let mut file = File::open(&*path).expect("Unable to open file");
 
-                while (read_total < division) && (read_length != 0) {
-                    // Handle the case when the bytes remaining to be read are
-                    // less than the block size
-                    if read_total + BLOCK_SIZE > division {
-                        contents.truncate(division - read_total);
-                    }
-                    read_length = thread_file.read(&mut contents).expect("Couldn't read file");
-                    read_total += read_length;
+                loop {
+                    let (offset, size) = {
+                        let mut q = chunks.lock().unwrap();
+                        match q.pop_front() {
+                            Some(chunk) => chunk,
+                            None => break,
+                        }
+                    };
+
+                    let mut buffer = vec![0_u8; size as usize];
+                    file.seek(SeekFrom::Start(offset)).expect("Seek failed");
+                    file.read_exact(&mut buffer).expect("Read failed");
+
+                    let mut data = output_data.lock().unwrap();
+                    data.extend_from_slice(&buffer);
+                    println!("[Thread] Read offset {offset}, size {size}");
                 }
-
-                println!("{} {}", read_total, length);
             });
         }
     });
+   // PHASE 2: Parse
+    let final_data = output_data.lock().unwrap();
+    let file_str = String::from_utf8_lossy(&final_data);
+    let lines: Vec<&str> = file_str.lines().collect();
+
+    let mut hm: HashMap<String, Vec<String>> = HashMap::new();
+    let mut fn_names: Vec<String> = Vec::new();
+
+    // First pass: collect function definitions
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        if line.trim_start().starts_with("def") {
+            let mut local_line = line.to_string();
+            let fn_name = line
+                .trim_start()
+                .trim_start_matches("def")
+                .trim()
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+
+            if !hm.contains_key(&fn_name) {
+                hm.insert(fn_name.clone(), Vec::new());
+                fn_names.push(fn_name.clone());
+            }
+
+            while !local_line.trim_end().ends_with(':') {
+                i += 1;
+                if i < lines.len() {
+                    local_line.push_str(" ");
+                    local_line.push_str(lines[i].trim());
+                } else {
+                    break;
+                }
+            }
+        }
+        i += 1;
+    }
+
+    // Second pass: detect function calls
+    let mut i = 0;
+    let mut current_fn: Option<String> = None;
+
+    while i < lines.len() {
+        let line = lines[i];
+
+        if line.trim_start().starts_with("def") {
+            let fn_name = line
+                .trim_start()
+                .trim_start_matches("def")
+                .trim()
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            current_fn = Some(fn_name.clone());
+            i += 1;
+            continue;
+        }
+
+        if let Some(curr) = &current_fn {
+            for fname in &fn_names {
+                if line.contains(fname) && fname != curr {
+                    if let Some(callees) = hm.get_mut(curr) {
+                        if !callees.contains(fname) {
+                            callees.push(fname.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        i += 1;
+    }
+
+    // println!("{:#?}", hm);
+
+    for(key, value) in hm.into_iter(){
+        for v in value{
+
+        }
+    }
 }
