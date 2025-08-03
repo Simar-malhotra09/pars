@@ -5,12 +5,21 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
-/// CLI definition
-#[derive(Parser)]
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum InfoLevel{
+    l1: String,
+    l2: String,
+    l3: String
+}
+
+#[derive(Parser, Debug)]
 struct Cli {
     file_path: PathBuf,
+
+    #[clap(value_enum, default_value_t=InfoLevel::l1)]
+    info_level: InfoLevel,
 }
 
 #[derive(Debug)]
@@ -249,3 +258,15 @@ fn main() {
     }
 
 }
+
+
+
+
+// [#cfg(test)]
+// mod tests{
+//     use super::*;
+//
+//     #[test]
+//     fn test_reas  
+
+
