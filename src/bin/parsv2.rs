@@ -8,17 +8,17 @@ use std::thread;
 use clap::{Parser, ValueEnum};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
-enum InfoLevel{
-    l1: String,
-    l2: String,
-    l3: String
+enum InfoLevel {
+    L1,
+    L2,
+    L3,
 }
 
 #[derive(Parser, Debug)]
 struct Cli {
     file_path: PathBuf,
 
-    #[clap(value_enum, default_value_t=InfoLevel::l1)]
+    #[clap(value_enum, default_value_t=InfoLevel::L1)]
     info_level: InfoLevel,
 }
 
@@ -80,19 +80,8 @@ fn print_tree(
     }
 }
 
-fn main() {
-    let args = Cli::parse();
-    let path = Arc::new(args.file_path);
 
-    let file_path_str = path.to_str().unwrap_or("<non-utf8>").to_string();
-    println!("Path as string: {}", file_path_str);
-
-    let length: u64 = std::fs::metadata(&*path)
-        .expect("Unable to query file details")
-        .len();
-    println!("Total file length: {} bytes", length);
-
-    // Chunk the file into parts
+fn chunk_file(length: u64)-> VecDeque<(u64, u64)>{
     let mut chunks = VecDeque::new();
     let mut offset = 0;
     while offset < length {
@@ -100,11 +89,15 @@ fn main() {
         chunks.push_back((offset, size));
         offset += size;
     }
+    return chunks;
 
-    let chunks = Arc::new(Mutex::new(chunks));
-    let output_data = Arc::new(Mutex::new(Vec::with_capacity(length as usize)));
+}
 
-    // Parallel reading
+fn read_file_parallel(
+    path: Arc<PathBuf>,
+    chunks: Arc<Mutex<VecDeque<(u64, u64)>>>,
+    output_data: Arc<Mutex<Vec<u8>>>,
+) {
     thread::scope(|scope| {
         for _ in 0..THREADS {
             let path = Arc::clone(&path);
@@ -134,6 +127,25 @@ fn main() {
             });
         }
     });
+}
+
+fn main() {
+    let args = Cli::parse();
+    let path = Arc::new(args.file_path);
+
+    let file_path_str = path.to_str().unwrap_or("<non-utf8>").to_string();
+    println!("Path as string: {}", file_path_str);
+
+    let length =std::fs::metadata(&*path).expect("Unable to query file details").len();
+    println!("Total file length: {} bytes", length);
+
+    let chunks = Arc::new(Mutex::new(chunk_file(length)));
+    let output_data = Arc::new(Mutex::new(Vec::with_capacity(length as usize)));
+
+    let start = std::time::Instant::now();
+    read_file_parallel(path, chunks, output_data.clone());
+    println!("Done reading in {:?}", start.elapsed());
+
 
     // PHASE 2: Parse
     // This code is really bad and extremly inefficient. 
