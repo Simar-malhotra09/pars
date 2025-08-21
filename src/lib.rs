@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug,Clone, serde::Serialize, serde::Deserialize)]
 pub struct FnInfo {
     pub line_at_call: usize,
     pub callees: Vec<(String, usize)>, // (callee_name, line_number)
