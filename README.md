@@ -5,13 +5,6 @@ A simple Rust CLI tool to extract Python function definitions from a `.py` file.
 ### Vision:
 Build a tool that statically parses an entire codebase, giving relevant information like function definitions and heirarchy, the caller-calle relationship etc. A better developed version of the sidebar visible on right-side when you open a file on the github website is maybe a decent description. 
 
-## Tasks
-
-- [ ] How does `Arc` and `Mutex` actually work?
-- [ ] Benchmark with different file sizes.
-- [ ] The code for parsing is extremely inefficient, from a simplicity of understanding perspective if not speed; find a better way.
-- [ ] Define a file which lists function signature syntax across different languages to extend usability.
-- [ ] Extend parsing to constants, macros, structs, classes and other common patterns across languages.
 
 
 ## Install
@@ -29,7 +22,7 @@ Analyzing file: /Users/***/cv/cv.py
 Configuration: threads=8, block_size=16KB, cache=true, parallel_read=false
 File size: 10311 bytes
 
-Using cached parse results // or Cached parse results to: /Users/simarmalhotra/cv/cv.funcparse_cache
+Using cached parse results // or Cached parse results to: /Users/***/cv/cv.cache
 Parsing completed in 351.917µs
 Found 15 functions
 
