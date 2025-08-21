@@ -25,14 +25,16 @@ Build a tool that statically parses an entire codebase, giving relevant informat
 ```pars example.py ```
 
 ```
+Analyzing file: /Users/***/cv/cv.py
+Configuration: threads=8, block_size=16KB, cache=true, parallel_read=false
+File size: 10311 bytes
 
-Path: /Users/simarmalhotra/cv/cv.py
-Total file length: 10311 bytes
-[Thread] Read offset 0, size 10311
-Done reading in 725.25µs
+Using cached parse results // or Cached parse results to: /Users/simarmalhotra/cv/cv.funcparse_cache
+Parsing completed in 351.917µs
+Found 15 functions
 
 Function Call Hierarchy:
----------------------------
+========================================
 └── chan_vese (line 210)
     ├── supported_float_type (line 10)
     ├── _cv_init_level_set (line 194)
@@ -48,6 +50,12 @@ Function Call Hierarchy:
     │       └── _cv_delta (line 85)
     ├── _cv_calculate_variation (line 32)
     └── _cv_reset_level_set (line 147)
+
+Summary:
+  Total functions: 15
+  Root functions: 1
+  Orphan functions: 0
+  Total function calls: 14 
 
 ```
 
