@@ -2,12 +2,17 @@
 name = "pars"
 author= ["Simar Malhotra malhotrasimar009@gmail.com"]
 description = "A tool to get list of functions in a python file"
-version = "0.1.0"
+version = "0.2.2"
 license = "MIT OR Apache-2.0"
 edition = "2024"
 
 include= [
-"./src/bin/parsv2.rs",
+"src/bin/pars.rs",
+"src/bin/ps.rs",
+
 ]
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
+serde = {version= "1.0.219", features= ["derive"]}
+
+serde_json = "1.0.142"
