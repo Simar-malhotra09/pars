@@ -418,7 +418,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     let metadata = std::fs::metadata(path)?;
-    println!("File size: {} bytes", metadata.len());
+    let file_size_kb= metadata.len() as f64/ 1024.0;
+
+    if file_size_kb < 1.0{
+        println!("File size: {} bytes", metadata.len());
+
+    }else{
+        println!("File size: {:.2} KB", file_size_kb);
+    }
+    
+
 
     // Parse the file
     let start = std::time::Instant::now();
