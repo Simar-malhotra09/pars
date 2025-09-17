@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
+
+pub mod cli;
 #[derive(Debug,Clone, serde::Serialize, serde::Deserialize)]
 pub struct FnInfo {
     pub line_at_call: usize,

@@ -8,35 +8,9 @@ use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 use pars::{FnInfo, find_roots, print_tree}; 
+use pars::cli::Cli;
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
-enum InfoLevel {
-    L1,
-    L2,
-    L3,
-}
 
-#[derive(Parser, Debug)]
-struct Cli {
-    file_path: PathBuf,
-
-    #[clap(value_enum, default_value_t = InfoLevel::L1)]
-    info_level: InfoLevel,
-    
-    /// Number of threads for parallel processing if enabled 
-    #[clap(long, default_value_t = 8)]
-    threads: usize,
-    
-    /// Block size in KB for parallel reading if enabled
-    #[clap(long, default_value_t = 16)]
-    block_size_kb: usize,
-    
-    #[clap(long)]
-    no_cache: bool,
-    
-    #[clap(long)]
-    parallel_read: bool,
-}
 
 
 #[derive(Debug)]
@@ -478,13 +452,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("\nSummary:");
-    println!("  Total functions: {}", functions.len());
-    println!("  Root functions: {}", roots.len());
-    println!("  Orphan functions: {}", functions.len() - visited.len());
-    
-    let total_calls: usize = functions.values().map(|f| f.callees.len()).sum();
-    println!("  Total function calls: {}", total_calls);
+    // println!("\nSummary:");
+    // println!("  Total functions: {}", functions.len());
+    // println!("  Root functions: {}", roots.len());
+    // println!("  Orphan functions: {}", functions.len() - visited.len());
+    //
+    // let total_calls: usize = functions.values().map(|f| f.callees.len()).sum();
+    // println!("  Total function calls: {}", total_calls);
 
     Ok(())
 }
