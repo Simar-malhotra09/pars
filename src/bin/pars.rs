@@ -1,35 +1,41 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs::{File, metadata};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use clap::{Parser, ValueEnum};
+use clap::{Parser};
 use serde::{Deserialize, Serialize};
-
 use pars::{FnInfo, find_roots, print_tree}; 
+
 use pars::cli::Cli;
 use pars::lang;
 
 #[derive(Debug)]
-struct FileInfo{
-    file_type: String,
-    file_path: &PathBuf,
+pub enum Language {
+    Py,
+    Rs,
+    Unknown,
+}
+
+
+#[derive(Debug)]
+struct FileInfo<'a> {
+    file_type: Language,
+    file_path: &'a PathBuf,
     file_size: usize,
 
 }
 
-impl FileInfo {
-    fn from_path(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+impl<'a> FileInfo<'a> {
+    fn from_path(path: &'a PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let metadata = std::fs::metadata(path)?;
 
-        let file_type = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let file_type = match path.extension().and_then(|ext| ext.to_str()) {
+            Some("py") => Language::Py,
+            Some("rs") => Language::Rs,
+            _ => Language::Unknown,
+        };
 
         Ok(FileInfo {
             file_type,
-            file_path: path.clone(),
+            file_path: path,
             file_size: metadata.len() as usize,
         })
     }
@@ -165,7 +171,25 @@ fn save_cache(source_path: &PathBuf, content: &str, functions: &HashMap<String, 
 }
 
 /// parse the file contents 
-fn parse_functions(content: &str) -> Result<HashMap<String, FnInfo>, ParseError> {
+fn parse_functions(file_info: &FileInfo, content: &str) -> Result<HashMap<String, FnInfo>, ParseError> {
+    let (func_def, params_open, param_close, end_def) = match file_info.file_type {
+        Language::Py => (
+            lang::py::FUNC_DEF,
+            lang::py::PARAMS_OPEN,
+            lang::py::PARAMS_CLOSE,
+            lang::py::END_DEF,
+        ),
+        Language::Rs => (
+            lang::rs::FUNC_DEF,
+            lang::rs::PARAMS_OPEN,
+            lang::rs::PARAMS_CLOSE,
+            lang::rs::END_DEF,
+        ),
+        Language::Unknown => {
+            return Err(ParseError::UnsupportedLanguage("unknown".into()));
+        }
+    };
+    
     let mut functions = HashMap::new();
     let mut fn_names = Vec::new();
     let lines: Vec<&str> = content.lines().collect();
@@ -182,15 +206,19 @@ fn parse_functions(content: &str) -> Result<HashMap<String, FnInfo>, ParseError>
         let trimmed = line.trim_start();
         
         // Check for function definition
-        if trimmed.starts_with("def ") {
-            match extract_function_name(trimmed) {
-                Some(fn_name) => {
+        if trimmed.starts_with(func_def) {
+            let fn_name= match file_info.file_type {
+                    Language::Py => extract_function_name::<lang::py::Python>(trimmed),
+                    Language::Rs => extract_function_name::<lang::rs::Rust>(trimmed),
+                    Language::Unknown => None,
+            };
+            if let Some(name)= fn_name=> {
                     // Handle multi-line function definitions
                     let mut complete_def = line.to_string();
                     let mut line_idx = i;
                     
-                    // Continue reading until we find the colon
-                    while !complete_def.trim_end().ends_with(':') && line_idx + 1 < lines.len() {
+                    // Continue reading until we find the params open (: for py, { for rs etc)
+                    while !complete_def.trim_end().ends_with(params_open) && line_idx + 1 < lines.len() {
                         line_idx += 1;
                         complete_def.push(' ');
                         complete_def.push_str(lines[line_idx].trim());
@@ -211,7 +239,6 @@ fn parse_functions(content: &str) -> Result<HashMap<String, FnInfo>, ParseError>
                 None => {
                     eprintln!("Warning: Could not parse function name from line {}: {}", i + 1, trimmed);
                 }
-            }
         } else if let Some(ref current_func) = current_fn {
             // Simple indentation-based scope detection
             if !line.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
@@ -236,24 +263,18 @@ fn parse_functions(content: &str) -> Result<HashMap<String, FnInfo>, ParseError>
     Ok(functions)
 }
 
-/// extract function name from a line with 'def'
-fn extract_function_name(def_line: &str) -> Option<String> {
-    let after_def = def_line.trim_start_matches("def ").trim();
-    
-    if let Some(paren_pos) = after_def.find('(') {
+fn extract_function_name<L: lang::LangSpec>(def_line: &str) -> Option<String> {
+    let after_def = def_line.trim_start_matches(L::FUNC_DEF).trim();
+
+    if let Some(paren_pos) = after_def.find(L::PARAMS_OPEN) {
         let name = after_def[..paren_pos].trim();
-        if !name.is_empty() && is_valid_python_identifier(name) {
+        if !name.is_empty() && L::is_valid_identifier(name) {
             return Some(name.to_string());
         }
     }
-    
     None
 }
 
-fn is_valid_python_identifier(name: &str) -> bool {
-    name.chars().next().map_or(false, |c| c.is_alphabetic() || c == '_') &&
-    name.chars().all(|c| c.is_alphanumeric() || c == '_')
-}
 
 fn line_contains_function_call(line: &str, func_name: &str) -> bool {
     if !line.contains(func_name) {
@@ -269,9 +290,10 @@ fn line_contains_function_call(line: &str, func_name: &str) -> bool {
     line.contains(&method_pattern)
 }
 
-fn parse_file(path: &PathBuf, config: &Config) -> Result<HashMap<String, FnInfo>, ParseError> {
+fn parse_file(file_info: &FileInfo, config: &Config) -> Result<HashMap<String, FnInfo>, ParseError> {
     // Read file content
-    let file_content = read_file(path)?;
+    // let file_content = read_file(path)?;
+    let file_content= read_file(&file_info.file_path)?;
     
     if file_content.is_empty() {
         return Err(ParseError::ParseFailure("File is empty".to_string()));
@@ -279,7 +301,7 @@ fn parse_file(path: &PathBuf, config: &Config) -> Result<HashMap<String, FnInfo>
     
     // Try to load from cache if enabled
     if config.enable_cache {
-        match load_cache(path, &file_content) {
+        match load_cache(&file_info.file_path, &file_content) {
             Ok(Some(cached_functions)) => return Ok(cached_functions),
             Ok(None) => {}, // Cache miss or invalid, continue parsing
             Err(e) => {
@@ -293,7 +315,7 @@ fn parse_file(path: &PathBuf, config: &Config) -> Result<HashMap<String, FnInfo>
     
     // Save to cache if enabled
     if config.enable_cache {
-        if let Err(e) = save_cache(path, &file_content, &functions) {
+        if let Err(e) = save_cache(&file_info.file_path, &file_content, &functions) {
             eprintln!("Failed to save cache (continuing): {}", e);
         }
     }
@@ -305,10 +327,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let config = Config::from(&args);
     let path = &args.file_path;
-    let file_info = FileInfo::from_path(&path);
+    let file_info = FileInfo::from_path(&path)?;
 
-    println!("{:?}", file_info);
-    println!("Lang module works! {}", lang::python::FUNC_DEF);
+    // println!("{:?}", file_info);
+    // println!("Lang module works! {}", lang::python::FUNC_DEF);
+    //
     println!("Analyzing file: {}", path.display());
     println!("cache?={}", config.enable_cache);
 
@@ -334,7 +357,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse the file
     let start = std::time::Instant::now();
-    let functions = match parse_file(path, &config) {
+    let functions = match parse_file(&file_info, &config) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("Failed to parse file: {}", e);
