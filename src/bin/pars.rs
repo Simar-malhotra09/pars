@@ -2,32 +2,49 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, metadata};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::thread;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 use pars::{FnInfo, find_roots, print_tree}; 
 use pars::cli::Cli;
+use pars::lang;
 
+#[derive(Debug)]
+struct FileInfo{
+    file_type: String,
+    file_path: &PathBuf,
+    file_size: usize,
 
+}
 
+impl FileInfo {
+    fn from_path(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+        let metadata = std::fs::metadata(path)?;
+
+        let file_type = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        Ok(FileInfo {
+            file_type,
+            file_path: path.clone(),
+            file_size: metadata.len() as usize,
+        })
+    }
+}
 
 #[derive(Debug)]
 struct Config {
-    threads: usize,
-    block_size: usize,
     enable_cache: bool,
-    parallel_read: bool,
+
 }
 
 impl From<&Cli> for Config {
     fn from(cli: &Cli) -> Self {
         Self {
-            threads: cli.threads,
-            block_size: cli.block_size_kb * 1024,
             enable_cache: !cli.no_cache,
-            parallel_read: cli.parallel_read,
         }
     }
 }
@@ -65,96 +82,6 @@ struct CacheEntry {
     file_hash: u64,
     last_modified: u64,
     functions: HashMap<String, FnInfo>,
-}
-
-/// Creates chunks for parallel file reading
-fn chunk_file(length: u64, block_size: usize) -> VecDeque<(u64, u64)> {
-    let mut chunks = VecDeque::new();
-    let mut offset = 0;
-
-    while offset < length {
-        let size = std::cmp::min(block_size as u64, length - offset);
-        chunks.push_back((offset, size));
-        offset += size;
-    }
-
-    chunks
-}
-
-fn read_file_parallel_fixed(
-    path: Arc<PathBuf>,
-    config: &Config,
-) -> Result<Vec<u8>, ParseError> {
-    let length = metadata(&*path)?.len();
-    let chunks = Arc::new(Mutex::new(chunk_file(length, config.block_size)));
-    
-    // Pre-allocate space and use HashMap to maintain order
-    let chunk_data = Arc::new(Mutex::new(HashMap::<u64, Vec<u8>>::new()));
-    
-    let result = thread::scope(|scope| -> Result<Vec<u8>, ParseError> {
-        let mut handles = Vec::new();
-        
-        for thread_id in 0..config.threads {
-            let path = Arc::clone(&path);
-            let chunks = Arc::clone(&chunks);
-            let chunk_data = Arc::clone(&chunk_data);
-
-            let handle = scope.spawn(move || -> Result<(), ParseError> {
-                let mut file = File::open(&*path)?;
-
-                loop {
-                    let (offset, size) = {
-                        let mut q = chunks.lock().map_err(|e| {
-                            ParseError::ParseFailure(format!("Mutex poison error: {}", e))
-                        })?;
-                        match q.pop_front() {
-                            Some(chunk) => chunk,
-                            None => break,
-                        }
-                    };
-
-                    let mut buffer = vec![0_u8; size as usize];
-                    file.seek(SeekFrom::Start(offset))?;
-                    file.read_exact(&mut buffer)?;
-
-                    {
-                        let mut data = chunk_data.lock().map_err(|e| {
-                            ParseError::ParseFailure(format!("Mutex poison error: {}", e))
-                        })?;
-                        data.insert(offset, buffer);
-                    }
-                    
-                    println!("[Thread {}] Read offset {}, size {}", thread_id, offset, size);
-                }
-                Ok(())
-            });
-            handles.push(handle);
-        }
-        
-        // Wait for all threads and collect any errors
-        for handle in handles {
-            handle.join().map_err(|e| {
-                ParseError::ParseFailure(format!("Thread panicked: {:?}", e))
-            })??;
-        }
-        
-        // Reconstruct file in correct order
-        let chunk_map = chunk_data.lock().map_err(|e| {
-            ParseError::ParseFailure(format!("Mutex poison error: {}", e))
-        })?;
-        
-        let mut sorted_offsets: Vec<u64> = chunk_map.keys().cloned().collect();
-        sorted_offsets.sort();
-        
-        let mut result = Vec::with_capacity(length as usize);
-        for offset in sorted_offsets {
-            result.extend_from_slice(&chunk_map[&offset]);
-        }
-        
-        Ok(result)
-    });
-    
-    result
 }
 
 fn read_file(path: &PathBuf) -> Result<String, ParseError> {
@@ -378,10 +305,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let config = Config::from(&args);
     let path = &args.file_path;
+    let file_info = FileInfo::from_path(&path);
 
+    println!("{:?}", file_info);
+    println!("Lang module works! {}", lang::python::FUNC_DEF);
     println!("Analyzing file: {}", path.display());
-    println!("Configuration: threads={}, block_size={}KB, cache={}, parallel_read={}", 
-             config.threads, config.block_size / 1024, config.enable_cache, config.parallel_read);
+    println!("cache?={}", config.enable_cache);
 
     if !path.exists() {
         return Err(format!("File does not exist: {}", path.display()).into());
