@@ -1,9 +1,3 @@
-# pars
-
-A simple Rust CLI tool to extract Python function definitions from a `.py` file.
-
-### Vision:
-Build a tool that statically parses an entire codebase, giving relevant information like function definitions and heirarchy, the caller-calle relationship etc. A better developed version of the sidebar visible on right-side when you open a file on the github website is maybe a decent description. 
 
 
 
